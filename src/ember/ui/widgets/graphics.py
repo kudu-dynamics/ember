@@ -7,7 +7,7 @@ Several classes are based on equivalent code in angr management. Thank you, angr
 from typing import Optional
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView, QGraphicsSceneMouseEvent, QStyleOptionGraphicsItem
 from PySide6.QtCore import QPointF, Qt, QEvent, QMarginsF, QPoint, QRectF, QSize, Signal
-from PySide6.QtGui import QImage, QKeyEvent, QMouseEvent, QPainter, QVector2D
+from PySide6.QtGui import QImage, QKeyEvent, QMouseEvent, QPainter, QPointingDevice, QVector2D, QWheelEvent
 
 class BaseGraphicsView(QGraphicsView):
     """
@@ -172,18 +172,18 @@ class InteractiveGraphicsView(BaseGraphicsView):
         self.translate(delta.x(), delta.y())
 
     def wheelEvent(self, event):
-        # TODO: Verify this works as intented with both mouse wheels and trackpads
-
-        # Zoom in/out when Ctrl-key pressed
-        if is_modifier_active(event, Qt.ControlModifier): #type: ignore
+        print(f'scene rect: {self.scene().sceneRect()}')
+        if event.modifiers() & Qt.ControlModifier == Qt.ControlModifier:
+            print(f'angleDelta: {event.angleDelta()}')
             is_zoom_out = event.angleDelta().y() < 0
-            self.zoom(is_zoom_out, event.position())
-        # Support scrolling
+            # TODO: Do we want to use cursor position (the pos() method) instead?
+            self.zoom(is_zoom_out, event.globalPosition().toPoint())
+        elif is_touchpad(event):
+            super().wheelEvent(event)
         else:
-            # Horizontal scrolling of Shift-key is pressed
-            if is_modifier_active(event, Qt.ShiftModifier): #type: ignore
-                # Remove shift modifier
-                event.setModifiers(event.modifiers() & ~Qt.ShiftModifier) #type: ignore
+            # Allow mouse wheel to be used for horizontal scrolling when modifier is active
+            if event.modifiers() & Qt.ShiftModifier == Qt.ShiftModifier:
+                event.setModifiers(event.modifiers() & ~Qt.ShiftModifier)
                 self.horizontalScrollBar().wheelEvent(event)
             else:
                 self.verticalScrollBar().wheelEvent(event)
@@ -313,3 +313,6 @@ def is_modifier_active(event: QKeyEvent,
     """
 
     return event.modifiers() & modifier == modifier #type: ignore
+
+def is_touchpad(event: QWheelEvent) -> bool:
+    return event.pointerType() == QPointingDevice.PointerType.Finger
