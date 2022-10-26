@@ -134,7 +134,7 @@ class InteractiveGraphicsView(BaseGraphicsView):
             self.setScene(scene)
 
     def sizeHint(self):
-        return QSize(300, 300)
+        return QSize(1000, 700)
 
     def zoom(self, out=False, at=None, reset=False, restore=False):
         if at is None:
@@ -172,7 +172,6 @@ class InteractiveGraphicsView(BaseGraphicsView):
         self.translate(delta.x(), delta.y())
 
     def wheelEvent(self, event):
-        print(f'scene rect: {self.scene().sceneRect()}')
         if event.modifiers() & Qt.ControlModifier == Qt.ControlModifier:
             print(f'angleDelta: {event.angleDelta()}')
             is_zoom_out = event.angleDelta().y() < 0
