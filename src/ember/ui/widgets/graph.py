@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, QLineF, QPoint, QPointF, QRect, QRectF
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen
-from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsLineItem, QStyleOptionGraphicsItem, QTextEdit
+from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsLineItem, QGraphicsProxyWidget, QStyleOptionGraphicsItem, QTextEdit
 from networkx import DiGraph
 
 from .graphics import InteractiveGraphicsView
@@ -33,27 +33,21 @@ class FlowGraphWidget(InteractiveGraphicsView):
         scene.addItem(node_b)
         scene.addItem(node_c)
         scene_rect = self.scene().sceneRect()
-        # node_a.setPos(scene_rect.center())
 
-        print(f'before sceneRect center: {scene_rect.center()}')
-        print(f'node_a.pos(): {node_a.pos()}, {node_a.scenePos()}')
-        # node_a.setPos(QPointF(-node_a.sceneBoundingRect().width() / 2.0, -node_a.sceneBoundingRect().height() / 2.0))
+        node_a.setPos(scene_rect.center())
         node_b.setPos(node_a.pos() + QPointF(-250, 250))
         node_c.setPos(node_a.pos() + QPointF(250, 250))
 
         center_a = node_a.sceneBoundingRect().center()
         center_b = node_b.sceneBoundingRect().center()
 
-        # line = QGraphicsLineItem(center_a.x(), center_a.y(), center_b.x(), center_b.y())
-        # scene.addItem(line)
-
         edge_a_b = FlowGraphEdge(node_a, node_b)
-        # edge_a_c = FlowGraphEdge(node_a, node_c)
+        edge_a_c = FlowGraphEdge(node_a, node_c)
         scene.addItem(edge_a_b)
-        # scene.addItem(edge_a_c)
+        scene.addItem(edge_a_c)
 
         edge_a_b._connect(node_a, node_b)
-        # edge_a_c._connect(node_a, node_c)
+        edge_a_c._connect(node_a, node_c)
 
         self.centerOn(node_a)
 
@@ -76,21 +70,17 @@ class FlowGraphNode(QGraphicsItem):
         super().__init__()
         self.text_edit = QTextEdit()
         self.text_edit.setPlainText(data)
+        self.proxy = QGraphicsProxyWidget(self)
+        self.proxy.setWidget(self.text_edit)
 
     def boundingRect(self) -> QRectF:
-        size: QRect = self.text_edit.size()
-        # print(f'text edit size: {size}')
-        left = -size.width() / 2.0
-        top = -size.height() / 2.0
-        return QRectF(left, top, size.width(), size.height())
+        return self.proxy.boundingRect()
 
     def paint(self,
               painter: QPainter,
               _option: QStyleOptionGraphicsItem,
               _widget: QWidget):
-        # TODO: Is fetching the bounding rect bad for performance? Perhaps cache it?
-        rect = self.boundingRect()
-        self.text_edit.render(painter, rect.topLeft().toPoint())
+        self.proxy.paint(painter, _option, _widget)
 
 # TODO: This may eventually become an empty base class that is extended for custom edge drawing.
 class FlowGraphEdge(QGraphicsItem):
@@ -124,16 +114,12 @@ class FlowGraphEdge(QGraphicsItem):
     @staticmethod
     def srcPos(n: QGraphicsItem) -> QPointF:
         boundingRect = n.sceneBoundingRect()
-        # return n.scenePos() + QPointF(boundingRect.width() / 2.0, boundingRect.height())
-        return boundingRect.center()
+        return n.scenePos() + QPointF(boundingRect.width() / 2.0, boundingRect.height())
 
     @staticmethod
     def dstPos(n: QGraphicsItem) -> QPointF:
         boundingRect = n.sceneBoundingRect()
-        # return n.scenePos() + QPointF(boundingRect.width() / 2.0, 0.0)
-        bottomCenter = boundingRect.center()
-        # bottomCenter.setY(boundingRect.top())
-        return bottomCenter
+        return n.scenePos() + QPointF(boundingRect.width() / 2.0, 0.0)
 
     def _connect(self, src: QGraphicsItem, dst: QGraphicsItem) -> None:
         """Update the edge to connect two items in the same scene.
