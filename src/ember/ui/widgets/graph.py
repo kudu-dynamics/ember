@@ -1,12 +1,15 @@
 from PySide6.QtCore import Qt, QLineF, QPoint, QPointF, QRect, QRectF
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen
-from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsLineItem, QGraphicsProxyWidget, QStyleOptionGraphicsItem, QTextEdit
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsPathItem, QGraphicsProxyWidget, QStyleOptionGraphicsItem, QTextEdit
 from networkx import DiGraph
-from typing import Any
+from typing import Any, List
 
 from .graphics import InteractiveGraphicsView
 import ember.graph.layout as graph_layout
-from ember.graph.layout import NodeSize
+from ember.graph.layout import NodeSize, Point
+
+def toQPoint(p: Point) -> QPoint:
+    return QPoint(p.x, p.y)
 
 # TODO: This may eventually become an empty base class that is extended for custom node views.
 class FlowGraphNode(QGraphicsItem):
@@ -32,47 +35,36 @@ class FlowGraphNode(QGraphicsItem):
 class FlowGraphEdge(QGraphicsItem):
 
     def __init__(self,
-                 x: QGraphicsItem,
-                 y: QGraphicsItem,
+                 src: QGraphicsItem,
+                 dst: QGraphicsItem,
+                 pts: List[QPointF],
                  color: QColor = Qt.white,
                  width: float = 3.0):
         """The x and y items being connected need to have already been added to a scene
         and positioned before creating their edge object.
         """
         super().__init__()
-        self.line: QGraphicsLineItem = QGraphicsLineItem(QLineF(QPointF(0.0, 0.0),
-                                                                QPointF(0.0, 0.0)))
+
+        self.path: QPainterPath = QPainterPath(pts[0])
+        for pt in pts[1:]:
+            self.path.lineTo(pt)
+        self.pathItem: QGraphicsPathItem = QGraphicsPathItem(self.path)
+
         self.color: QColor = color
         self.width: float = width
-        self.line.setPen(QPen(self.color, self.width, Qt.SolidLine, Qt.FlatCap, Qt.BevelJoin))
+        self.pathItem.setPen(QPen(self.color, self.width, Qt.SolidLine, Qt.FlatCap, Qt.BevelJoin))
 
-        self._connect(x, y)
+        self.src = src
+        self.dst = dst
 
     def boundingRect(self) -> QRectF:
-        return self.line.boundingRect()
+        return self.pathItem.boundingRect()
 
     def paint(self,
               painter: QPainter,
               option: QStyleOptionGraphicsItem,
               widget: QWidget):
-        self.line.paint(painter, option, widget)
-
-    @staticmethod
-    def srcPos(n: QGraphicsItem) -> QPointF:
-        boundingRect = n.sceneBoundingRect()
-        return n.scenePos() + QPointF(boundingRect.width() / 2.0, boundingRect.height())
-
-    @staticmethod
-    def dstPos(n: QGraphicsItem) -> QPointF:
-        boundingRect = n.sceneBoundingRect()
-        return n.scenePos() + QPointF(boundingRect.width() / 2.0, 0.0)
-
-    def _connect(self, src: QGraphicsItem, dst: QGraphicsItem) -> None:
-        """Update the edge to connect two items in the same scene.
-        """
-
-        self.prepareGeometryChange()
-        self.line.setLine(QLineF(FlowGraphEdge.srcPos(src), FlowGraphEdge.dstPos(dst)))
+        self.pathItem.paint(painter, option, widget)
 
 class FlowGraphWidget(InteractiveGraphicsView):
 
@@ -102,7 +94,7 @@ class FlowGraphWidget(InteractiveGraphicsView):
         g.add_edge('c', 'd')
         g.add_edge('d', 'e')
         g.add_edge('b', 'e')
-        g.add_edge('e', 'e')
+        # g.add_edge('e', 'e')
         g.add_edge('e', 'f')
         g.add_edge('d', 'f')
 
@@ -117,29 +109,17 @@ class FlowGraphWidget(InteractiveGraphicsView):
         # TODO: Should the FlowGrpahNode keep a reference to the original node it represents?
         node_sizes = {n: rect_to_size(sn.boundingRect()) for n, sn in scene_nodes.items()}
 
-        layout_result = graph_layout.layout(g, node_sizes, lambda x: x)
+        layout_result, edges = graph_layout.layout(g, node_sizes, lambda x: x)
+
+        print(edges)
 
         for n, pt in layout_result.nodes.items():
             scene_nodes[n].setPos(QPointF(float(pt.x), float(pt.y)))
 
-        # scene_rect = self.scene().sceneRect()
-
-        # node_a.setPos(scene_rect.center())
-        # node_b.setPos(node_a.pos() + QPointF(-250, 250))
-        # node_c.setPos(node_a.pos() + QPointF(250, 250))
-
-        # center_a = node_a.sceneBoundingRect().center()
-        # center_b = node_b.sceneBoundingRect().center()
-
-        # edge_a_b = FlowGraphEdge(node_a, node_b)
-        # edge_a_c = FlowGraphEdge(node_a, node_c)
-        # scene.addItem(edge_a_b)
-        # scene.addItem(edge_a_c)
-
-        # edge_a_b._connect(node_a, node_b)
-        # edge_a_c._connect(node_a, node_c)
-
-        # self.centerOn(node_a)
+        for e, pts in layout_result.edges.items():
+            qpts = [QPointF(pt.x, pt.y) for pt in pts]
+            fge = FlowGraphEdge(e.src, e.dst, qpts)
+            scene.addItem(fge)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         super().mousePressEvent(event)

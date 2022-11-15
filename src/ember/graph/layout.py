@@ -1,11 +1,14 @@
 from collections import defaultdict
 from collections.abc import Iterable
+import dataclasses
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
 import networkx
 from networkx import DiGraph
+
+
 
 @dataclass
 class LayoutOptions:
@@ -27,7 +30,11 @@ EdgeIndex = int
 GridElem = TypeVar('GridElem')
 Grid = List[List[GridElem]]
 Node = Any
-Edge = Any
+
+@dataclass(eq=True, frozen=True)
+class Edge:
+    src: Node
+    dst: Node
 
 @dataclass
 class Point:
@@ -59,13 +66,15 @@ class SegmentedEdge:
     src: Node
     dst: Node
     start_index: Optional[EdgeIndex] = None
-    max_start_index: Optional[EdgeIndex] = None
+    # The initial value of max_start_index is not used, and 0 is the minimum value it may be assigned.
+    max_start_index: EdgeIndex = 0
     end_index: Optional[EdgeIndex] = None
     max_end_index: Optional[EdgeIndex] = None
     # Three-dimensional points so that we can handle edge segments assigned to the same coordinate.
     points: List[EdgeCoord] = field(default_factory=lambda: [])
     moves: List = field(default_factory=lambda: [])
-    coordinates: List = field(default_factory=lambda: [])
+    # Scene coordinates
+    coordinates: List[Point] = field(default_factory=lambda: [])
 
     def first_move(self) -> Move:
         return self.moves[0] if self.moves else Move.NA
@@ -73,10 +82,24 @@ class SegmentedEdge:
     def last_move(self) -> Move:
         return self.moves[-1] if self.moves else Move.NA
 
+    def add_coord(self, pt: Point) -> None:
+        if len(self.coordinates) >= 2:
+            a = self.coordinates[-2]
+            b = self.coordinates[-1]
+            if b.x == a.x == pt.x:
+                # Vertical movement, replace last point
+                self.coordinates[-1] = pt
+                return
+            elif b.y == a.y == pt.y:
+                # Horizontal movement, replace last point
+                self.coordinates[-1] = pt
+                return
+        self.coordinates.append(pt)
+
 @dataclass
 class LayoutResult:
     nodes: Dict[Node, Point]
-    edges: Dict[Edge, SegmentedEdge]
+    edges: Dict[Edge, List[Point]]
 
 class EdgeLayoutState:
     def __init__(self,
@@ -107,7 +130,7 @@ class EdgeLayoutState:
         for _ in range(max_col + 2):
             v_edges = []
             h_edges = []
-            for row in range(max_row + 3):
+            for _ in range(max_row + 3):
                 v_edges.append({})
                 h_edges.append({})
             self.vertical_edges.append(v_edges)
@@ -163,11 +186,23 @@ class EdgeLayoutState:
             for edge in edges:
                 edge.max_start_index = max_idx
 
-
 def layout(dg: DiGraph,
            node_sizes: Dict[Node, NodeSize],
            node_compare_key,
            layout_options=DEFAULT_LAYOUT) -> LayoutResult:
+    """This function provides an implementation of the Sugiyama layout algorithm. This implementation is based off the implementation in angr management. There has been some refactoring into a more functional style.
+
+    There are two important coordinate systems to understand. The first is the grid coordinate system which is used to calculate an abstract layout for the graph. The second is the scene coordinate system which is used to define the nodes and edges in the actual graphics scene that will be rendered. Additionally, grid cells can contain multiple edges, and the absolute position of the edges within the cell are determined by an index value. This is reflected in the `EdgeCoord` datalcass which includes a grid coordinate (column and row), as well as an index field.
+
+    The grid is defined so that every row and column may have a different height and width, respectively.
+    +------+-----------+
+    |      |           |
+    +----+-+---+-------+
+    |    |     |       |
+    |    |     |       |
+    |    |     |       |
+    +----+-----+-------+
+    """
     # Order nodes
     ordered_nodes = quasi_topological_sort(dg)
 
@@ -214,9 +249,10 @@ def layout(dg: DiGraph,
                                           layout_options.x_margin,
                                           layout_options.y_margin,
                                           dg.nodes(),
-                                          node_sizes)
+                                          node_sizes,
+                                          edges)
 
-    return layout_result
+    return layout_result, edges
 
 def quasi_topological_sort(dg: DiGraph) -> List:
     """
@@ -375,12 +411,16 @@ def calculate_max_row(dag: DiGraph, ordered_nodes: Iterable) -> Tuple[Dict[Node,
 
     return max_rows, max_row
 
-def assign_rows(ordered_nodes: List,
+def assign_rows(ordered_nodes: List[Node],
                 max_rows: Dict[Node, int],
                 node_compare_key) -> Tuple[Dict[Node, int], Dict[int, List]]:
+    """Assign nodes to rows and provide a mapping to lookup all nodes given a
+    row index.
+    """
 
+    # TODO: Isn't this rows Dict just a copy of max_rows?
     rows: Dict[Node, int] = {}
-    row_to_nodes: Dict[int, List] = defaultdict(list)
+    row_to_nodes: Dict[int, List[Node]] = defaultdict(list)
 
     for node in ordered_nodes:
         # Push each node as far up as possible, unless it is the terminal node
@@ -397,11 +437,15 @@ def assign_rows(ordered_nodes: List,
 def assign_columns(dag: DiGraph,
                    row_to_nodes: Dict[int, List],
                    node_compare_key) -> Tuple[Dict[Node, int], Dict[Node, GridIndex], int]:
+    """Assign nodes to columns and provide a mapping of nodes to a grid location, including
+    the index within the grid cell.
+    """
     cols: Dict[Node, int] = {}
     locations: Dict[Node, GridIndex] = {}
     global_max_col = 0
 
-    # Assign initial column ID fromm bottom-up
+    # Assign initial column ID fromm bottom-up.
+    # I.e., starting at the bottom rows.
     for row_idx in reversed(list(row_to_nodes.keys())):
         row_nodes = sorted(row_to_nodes[row_idx], key=node_compare_key)
 
@@ -598,16 +642,15 @@ def route_edge(state: EdgeLayoutState,
         state.horizontal_edges[min_col][start_row][idx] = edge
         edge.points.append(EdgeCoord(col, start_row, idx))
         edge.moves.append(move)
-    # else:
+    else:
         # We will also have a horizontal edge here just in case the two blocks don't align
-
-        # TODO: This is a nop then and should be removed?
-        # state.horizontal_edges[start_col][start_row][1]
+        state.horizontal_edges[start_col][start_row][1] = edge
         # Do not need to add point to the edge in this case
 
     if start_row != end_row:
         idx = abs(end_row - start_row) + 1
-        state.vertical_edges[col][min(start_row + 1, end_row)][idx] = edge
+        vert_row = min(start_row + 1, end_row)
+        state.vertical_edges[col][vert_row][idx] = edge
         edge.points.append(EdgeCoord(col, end_row, idx))
 
     if col != end_col:
@@ -624,6 +667,12 @@ def route_edge(state: EdgeLayoutState,
         state.horizontal_edges[min_col][end_row][idx] = edge
         edge.points.append(EdgeCoord(end_col, end_row, idx))
         edge.moves.append(move)
+
+        # Move downwards
+        # In a new grid cell, need a new edge index
+        idx = 0
+        state.vertical_edges[end_col][end_row][idx] = edge
+        edge.points.append(EdgeCoord(end_col, end_row, idx))
 
     state.out_edges[edge.src].append(edge)
     state.in_edges[edge.dst].append(edge)
@@ -655,6 +704,8 @@ def make_grids(max_row: int,
                sizes: Dict[Node, NodeSize],
                x_margin: int,
                y_margin: int) -> Tuple[List[int], List[int]]:
+    """Calculate the width of each column and height of each row.
+    """
     border_min_width = 20
     row_heights = [0] * (max_row + 2)
     col_widths = [0] * (max_col + 2)
@@ -694,6 +745,37 @@ def make_grids(max_row: int,
 
     return row_heights, col_widths
 
+def find_nonintersecting_y(grid_coords: Dict[GridIndex, Point],
+                           row_heights: List[int],
+                           row: int,
+                           starting_col: int,
+                           next_col: int,
+                           default_y: int) -> int:
+    """
+    Find the y-coordinate for a point on an edge that will not lead to the edge segment
+    intersecting with any nodes betweeng `starting_col` and `ending_col`.
+    """
+    max_y = None
+
+    if starting_col <= next_col:
+        min_col = starting_col
+        max_col = next_col
+    else:
+        min_col = next_col
+        max_col = starting_col
+
+    # Find all grids in range and use to push to a larger y-coordinate (move down in the scene)
+    for col in range(min_col, max_col + 1):
+        key = GridIndex(col, row)
+        if key not in grid_coords:
+            continue
+        pt = grid_coords[key]
+        new_y = pt.y + row_heights[row]
+        if max_y is None or new_y > max_y:
+            max_y = new_y
+
+    return max_y if max_y is not None else default_y
+
 def calculate_coordinates(max_row: int,
                           max_col: int,
                           row_heights: List[int],
@@ -706,12 +788,12 @@ def calculate_coordinates(max_row: int,
                           # x_margin and y_margin are edge margins?
                           x_margin: int,
                           y_margin: int,
-                          nodes: Iterable[Node],
-                          node_sizes: Dict[Node, NodeSize]) -> LayoutResult:
+                          nodes: List[Node],
+                          node_sizes: Dict[Node, NodeSize],
+                          edges: List[SegmentedEdge]) -> LayoutResult:
     row_max_idxs: Dict[int, EdgeIndex] = {}
     grid_coords: Dict[GridIndex, Point] = {}
     node_coords: Dict[Node, Point] = {}
-    edge_coords: Dict[Edge, SegmentedEdge] = {}
 
     # Find the max edge indices for each of the rows
     for loc, loc_max_idx in max_hedge_indices.items():
@@ -751,10 +833,107 @@ def calculate_coordinates(max_row: int,
         grid_height = row_heights[grid_loc.row]
         node_size = node_sizes[node]
 
-        # Place the center of the node in the center of the grid cell
+        # Place the "center" of the node in the center of the grid cell.
+        # NB: This horizontal position is based on the width of two columns.
         node_coords[node] = Point(grid_coord.x + ((grid_a_width + grid_b_width) // 2 - node_size.width // 2),
                                   grid_coord.y + (grid_height // 2 - node_size.height // 2))
 
     # Use grid coordinates to calculate edge scene coordinates
+    for edge in edges:
+        src_loc = node_coords[edge.src]
+        src_size = node_sizes[edge.src]
+        dst_loc = node_coords[edge.dst]
+        dst_size = node_sizes[edge.dst]
+
+        start_x_index = edge.points[0].idx
+        start_point_x_base = src_loc.x + src_size.width // 2 - (x_margin * (edge.max_start_index + 1) // 2)
+        start_point_x = start_point_x_base + (start_x_index * x_margin)
+        start_point = Point(start_point_x, src_loc.y + src_size.height)
+        edge.coordinates.append(start_point)
+
+        prev_grid_coord: GridIndex = locations[edge.src]
+        prev_grid_coord = GridIndex(prev_grid_coord.col + 1,
+                               prev_grid_coord.row + 1)
+
+        if len(edge.points) > 1:
+            next_point = edge.points[1]
+            next_col = next_point.col
+            next_idx = next_point.idx
+            starting_grid_coord: GridIndex = locations[edge.src]
+            starting_row = starting_grid_coord.row
+            starting_col = starting_grid_coord.col
+            y_base = find_nonintersecting_y(grid_coords,
+                                            row_heights,
+                                            starting_row,
+                                            starting_col,
+                                            next_col,
+                                            start_point.y) + row_margin
+            y = y_base + (next_idx * y_margin)
+        else:
+            y = start_point.y
+
+        # Add vertical segment, moving downward
+        edge.add_coord(Point(start_point.x, y))
+
+        prev_scene_pt = Point(start_point.x, y)
+        curr_scene_pt = Point(0, 0)
+        # For each point on the edge's line segments
+        for pt_idx, pt_edge_coord in enumerate(edge.points[1:-1]):
+            if pt_edge_coord.col == prev_grid_coord.col:
+                assert pt_edge_coord.row != prev_grid_coord.row
+                # Vertical
+                curr_scene_pt.x = prev_scene_pt.x
+
+                prev_row = pt_edge_coord.row-1
+                base_y = (grid_coords[GridIndex(pt_edge_coord.col, prev_row)].y +
+                          row_heights[prev_row] +
+                          row_margin)
+
+                # If this is the penultimate point
+                if pt_idx + 1 == len(edge.points) - 2:
+                    curr_scene_pt.y = base_y
+                else:
+                    # We add (+1) to fix the off-by-one index,
+                    # and another (+1) to get the next point's grid coordinates
+                    next_coord = edge.points[pt_idx + 1 + 1]
+                    curr_scene_pt.y = base_y + (next_coord.idx + y_margin)
+            elif pt_edge_coord.row == prev_grid_coord.row:
+                assert pt_edge_coord.col != prev_grid_coord.col
+                # Horizonal
+                # If this is the penultimate point
+                if pt_idx + 1 == len(edge.points) - 2:
+                    base_x = dst_loc.x + dst_size.width // 2
+                    assert edge.end_index is not None
+                    curr_scene_pt.x = base_x + (edge.end_index * x_margin)
+                else:
+                    # We add (+1) to fix the off-by-one index,
+                    # and another (+1) to get the next point's grid coordinates
+                    next_coord = edge.points[pt_idx + 1 + 1]
+                    base_x = grid_coords[GridIndex(pt_edge_coord.col, pt_edge_coord.row)].x
+                    curr_scene_pt.x = base_x + (next_coord.idx * x_margin)
+
+                curr_scene_pt.y = prev_scene_pt.y
+            else:
+                # Verify we didn't reach an unexpected case
+                assert False
+
+            edge.add_coord(curr_scene_pt)
+
+            # Update the previous point grid coordinates and scene coordinates
+            prev_grid_coord = GridIndex(pt_edge_coord.col, pt_edge_coord.row)
+            prev_scene_pt = dataclasses.replace(curr_scene_pt)
+
+        # Handle the last point. It will always be at the top of the destination node.
+        assert edge.max_end_index is not None
+        base_x = dst_loc.x + dst_size.width // 2 - (x_margin * (edge.max_end_index + 1) // 2)
+        end_edge_coord = edge.points[-1]
+        x = base_x + (end_edge_coord.idx * x_margin)
+        if x != prev_scene_pt.x:
+            # Move horizontally if needed
+            edge.add_coord(Point(x, prev_scene_pt.y))
+        end_point = Point(x, dst_loc.y - y_margin)
+        edge.add_coord(end_point)
+
+    edge_coords: Dict[Edge, List[Point]] = {Edge(e.src, e.dst): e.coordinates for e in edges}
 
     return LayoutResult(node_coords, edge_coords)
