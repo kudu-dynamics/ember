@@ -1,12 +1,14 @@
 import sys
+from typing import cast, List
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDockWidget, QMainWindow, QTextEdit, QWidget
-from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QDockWidget, QGraphicsItem, QGraphicsSimpleTextItem, QMainWindow, QTextEdit, QWidget
+from PySide6.QtGui import QColor, QFont
 
-from ui.widgets.log import LogWidget
-from ui.widgets.graph import FlowGraphWidget
-from log import LogOut
+from ember.ui.widgets.log import LogWidget
+from ember.ui.widgets.graph import FlowGraphWidget
+from ember.ui.widgets.trace import TraceSnapshot, TraceWidget
+from ember.log import LogOut
 
 class EmberWindow(QMainWindow):
   def __init__(self):
@@ -25,7 +27,16 @@ class EmberWindow(QMainWindow):
     log_dock_w = QDockWidget("Log")
     log_dock_w.setWidget(log_w)
 
-    main_w = FlowGraphWidget(None)
+    # main_w = FlowGraphWidget(None)
+    # main_w.reload()
+    # self.setCentralWidget(main_w)
+    # self.addDockWidget(Qt.BottomDockWidgetArea, log_dock_w)
+
+
+    items: List[TraceSnapshot] = [TraceSnapshot(addr) for addr in [0x0,
+                                                                   0x4,
+                                                                   0x8]]
+    main_w = TraceWidget(items)
     main_w.reload()
     self.setCentralWidget(main_w)
     self.addDockWidget(Qt.BottomDockWidgetArea, log_dock_w)
