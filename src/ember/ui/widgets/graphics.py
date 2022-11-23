@@ -91,7 +91,7 @@ class InteractiveGraphicsView(BaseGraphicsView):
     ZOOM_X = True
     ZOOM_Y = True
 
-    def __init__(self, parent=None):
+    def __init__(self, zoom_enabled=True, parent=None):
         super().__init__(parent=parent)
 
         self._is_dragging = False
@@ -108,6 +108,7 @@ class InteractiveGraphicsView(BaseGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
+        self.zoom_enabled = zoom_enabled
         self.zoom_factor = None
 
     def _initial_position(self):
@@ -137,6 +138,9 @@ class InteractiveGraphicsView(BaseGraphicsView):
         return QSize(1000, 700)
 
     def zoom(self, out=False, at=None, reset=False, restore=False):
+        if self.zoom_enabled == False:
+            return
+
         if at is None:
             at = self.scene().sceneRect().center().toPoint()
 
@@ -173,7 +177,6 @@ class InteractiveGraphicsView(BaseGraphicsView):
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.ControlModifier == Qt.ControlModifier:
-            print(f'angleDelta: {event.angleDelta()}')
             is_zoom_out = event.angleDelta().y() < 0
             # TODO: Do we want to use cursor position (the pos() method) instead?
             self.zoom(is_zoom_out, event.globalPosition().toPoint())
