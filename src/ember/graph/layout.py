@@ -3,7 +3,7 @@ from collections.abc import Iterable
 import dataclasses
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Dict, List, Optional, Set, Tuple, TypeVar
 
 import networkx
 from networkx import DiGraph
@@ -603,8 +603,11 @@ def route_edge(state: EdgeLayoutState,
     start_row += 1
 
     # Add (start?) of a vertical segment for 'edge'
-    start_idx = 0
-    state.vertical_edges[start_col][start_row][start_idx] = edge
+    start_idx = assign_vertical_edge(state.vertical_edges,
+                                     edge,
+                                     start_col,
+                                     start_row,
+                                     0)
     edge.points.append(EdgeCoord(start_col, start_row, start_idx))
 
     if start_row < end_row:
@@ -638,20 +641,30 @@ def route_edge(state: EdgeLayoutState,
             min_col = col
             move = Move.LEFT
 
-        idx = max_col - min_col
-        state.horizontal_edges[min_col][start_row][idx] = edge
-        edge.points.append(EdgeCoord(col, start_row, idx))
+        edge_idx = assign_horizontal_edge(state.horizontal_edges,
+                                          edge,
+                                          min_col,
+                                          start_row,
+                                          max_col - min_col)
+        edge.points.append(EdgeCoord(col, start_row, edge_idx))
         edge.moves.append(move)
     else:
         # We will also have a horizontal edge here just in case the two blocks don't align
-        state.horizontal_edges[start_col][start_row][1] = edge
+        assign_horizontal_edge(state.horizontal_edges,
+                               edge,
+                               start_col,
+                               start_row,
+                               1)
         # Do not need to add point to the edge in this case
 
     if start_row != end_row:
-        idx = abs(end_row - start_row) + 1
         vert_row = min(start_row + 1, end_row)
-        state.vertical_edges[col][vert_row][idx] = edge
-        edge.points.append(EdgeCoord(col, end_row, idx))
+        edge_idx = assign_vertical_edge(state.vertical_edges,
+                                        edge,
+                                        col,
+                                        vert_row,
+                                        abs(end_row - start_row) + 1)
+        edge.points.append(EdgeCoord(col, end_row, edge_idx))
 
     if col != end_col:
         # Generate a line to move to target column
@@ -663,21 +676,90 @@ def route_edge(state: EdgeLayoutState,
             max_col = col
             min_col = end_col
             move = Move.LEFT
-        idx = max_col - min_col
-        state.horizontal_edges[min_col][end_row][idx] = edge
-        edge.points.append(EdgeCoord(end_col, end_row, idx))
+        edge_idx = assign_horizontal_edge(state.horizontal_edges,
+                                          edge,
+                                          min_col,
+                                          end_row,
+                                          max_col - min_col)
+        edge.points.append(EdgeCoord(end_col, end_row, edge_idx))
         edge.moves.append(move)
 
         # Move downwards
         # In a new grid cell, need a new edge index
-        idx = 0
-        state.vertical_edges[end_col][end_row][idx] = edge
-        edge.points.append(EdgeCoord(end_col, end_row, idx))
+        edge_idx = assign_vertical_edge(state.vertical_edges,
+                                        edge,
+                                        end_col,
+                                        end_row,
+                                        0)
+        edge.points.append(EdgeCoord(end_col, end_row, edge_idx))
 
     state.out_edges[edge.src].append(edge)
     state.in_edges[edge.dst].append(edge)
 
     return edge, state
+
+def first_unused_index(indices: Set[int]) -> int:
+    sorted_indices = sorted(indices)
+
+    # Find first unused index
+    if not sorted_indices:
+        # No used indices
+        return 0
+    elif len(sorted_indices) == 1:
+        # One used index
+        # It should be the case that a lone index is always 0
+        # TODO: Is that true?
+        assert(sorted_indices[0] == 0)
+        return 1
+    else:
+        # TODO: Gaps could come in because of minimizing edge overlap?
+        # Check for gaps
+        for prev_idx, next_idx in zip(sorted_indices[:-1], sorted_indices[1:]):
+            if prev_idx + 1 != next_idx:
+                # Gap found
+                return prev_idx + 1
+    # If we make it here, append a new index to the end
+    return sorted_indices[-1] + 1
+
+def assign_vertical_edge(vertical_edges: Grid[Dict[EdgeIndex, SegmentedEdge]],
+                         edge: SegmentedEdge,
+                         col: int,
+                         row: int,
+                         num_blocks: int) -> EdgeIndex:
+
+    # Find available index
+    indices: Set[EdgeIndex] = set()
+    start_row = row
+    end_row = row + num_blocks
+    for r in range(start_row, end_row + 1):
+        if vertical_edges[col][r]:
+            indices.update(vertical_edges[col][r].keys())
+    edge_index = first_unused_index(indices)
+
+    for r in range(start_row, end_row + 1):
+        vertical_edges[col][r][edge_index] = edge
+
+    return edge_index
+
+def assign_horizontal_edge(horizontal_edges: Grid[Dict[EdgeIndex, SegmentedEdge]],
+                           edge: SegmentedEdge,
+                           col: int,
+                           row: int,
+                           num_blocks: int) -> EdgeIndex:
+
+    # Find available index
+    indices: Set[EdgeIndex] = set()
+    start_col = col
+    end_col = col + num_blocks
+    for c in range(start_col, end_col + 1):
+        if horizontal_edges[c][row]:
+            indices.update(horizontal_edges[c][row].keys())
+    edge_index = first_unused_index(indices)
+
+    for c in range(start_col, end_col + 1):
+        horizontal_edges[c][row][edge_index] = edge
+
+    return edge_index
 
 def calculate_max_edge_indices(edges: Grid[Dict[EdgeIndex, SegmentedEdge]]) -> Dict[GridIndex, EdgeIndex]:
     """Find the largest edge index used for each grid cell.
