@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, QLineF, QPoint, QPointF, QRect, QRectF
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsPathItem, QGraphicsProxyWidget, QStyleOptionGraphicsItem, QTextEdit
+from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsPathItem, QGraphicsProxyWidget, QGraphicsRectItem, QStyleOptionGraphicsItem, QTextEdit
 from networkx import DiGraph
 from typing import Any, List
 
@@ -21,6 +21,7 @@ class FlowGraphNode(QGraphicsItem):
         self.text_edit.setPlainText(data)
         self.proxy = QGraphicsProxyWidget(self)
         self.proxy.setWidget(self.text_edit)
+        self.rect = QGraphicsRectItem(self.proxy.boundingRect())
 
     def boundingRect(self) -> QRectF:
         return self.proxy.boundingRect()
@@ -29,7 +30,9 @@ class FlowGraphNode(QGraphicsItem):
               painter: QPainter,
               _option: QStyleOptionGraphicsItem,
               _widget: QWidget):
+        boundingRect = self.boundingRect()
         self.proxy.paint(painter, _option, _widget)
+        self.rect.paint(painter, _option, _widget)
 
 # TODO: This may eventually become an empty base class that is extended for custom edge drawing.
 class FlowGraphEdge(QGraphicsItem):
