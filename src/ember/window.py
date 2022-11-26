@@ -27,18 +27,19 @@ class EmberWindow(QMainWindow):
     log_dock_w = QDockWidget("Log")
     log_dock_w.setWidget(log_w)
 
-    # main_w = FlowGraphWidget(None)
-    # main_w.reload()
-    # self.setCentralWidget(main_w)
-    # self.addDockWidget(Qt.BottomDockWidgetArea, log_dock_w)
-
-
-    items: List[TraceSnapshot] = [TraceSnapshot(addr) for addr in [0x0,
-                                                                   0x4,
-                                                                   0x8]]
-    main_w = TraceWidget(items)
+    main_w = FlowGraphWidget(None)
     main_w.reload()
     self.setCentralWidget(main_w)
+    self.addDockWidget(Qt.BottomDockWidgetArea, log_dock_w)
+
+
+    # items: List[TraceSnapshot] = [TraceSnapshot(addr) for addr in [0x0,
+    #                                                                0x4,
+    #                                                                0x8]]
+    # main_w = TraceWidget(items)
+    # main_w.reload()
+    # self.setCentralWidget(main_w)
+
     self.addDockWidget(Qt.BottomDockWidgetArea, log_dock_w)
 
     self.show()
