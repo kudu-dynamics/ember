@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, QLineF, QPoint, QPointF, QRect, QRectF
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsPathItem, QGraphicsProxyWidget, QGraphicsRectItem, QStyleOptionGraphicsItem, QTextEdit
+from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsPathItem, QGraphicsTextItem, QGraphicsRectItem, QStyleOptionGraphicsItem, QTextEdit
 from networkx import DiGraph
 from typing import Any, List
 
@@ -14,25 +14,33 @@ def toQPoint(p: Point) -> QPoint:
 # TODO: This may eventually become an empty base class that is extended for custom node views.
 class FlowGraphNode(QGraphicsItem):
 
-    def __init__(self, data: str):
+    def __init__(self,
+                 data: str,
+                 width: int,
+                 height: int):
         super().__init__()
         self.data = data
-        self.text_edit = QTextEdit()
-        self.text_edit.setPlainText(data)
-        self.proxy = QGraphicsProxyWidget(self)
-        self.proxy.setWidget(self.text_edit)
-        self.rect = QGraphicsRectItem(self.proxy.boundingRect())
+        self.width = width
+        self.height = height
+        self.rect = QGraphicsRectItem(0.0, 0.0, width, height)
+        self.rect.setBrush(QBrush(QColor(50, 50, 50)))
+        self.text = QGraphicsTextItem(data)
+        self.text.setZValue(1.0)
 
     def boundingRect(self) -> QRectF:
-        return self.proxy.boundingRect()
+        # TODO: Should this be centered within the block instead of (0, 0)?
+        return QRectF(0.0,
+                      0.0,
+                      self.width,
+                      self.height)
+
 
     def paint(self,
               painter: QPainter,
               _option: QStyleOptionGraphicsItem,
               _widget: QWidget):
-        boundingRect = self.boundingRect()
-        self.proxy.paint(painter, _option, _widget)
         self.rect.paint(painter, _option, _widget)
+        self.text.paint(painter, _option, _widget)
 
 # TODO: This may eventually become an empty base class that is extended for custom edge drawing.
 class FlowGraphEdge(QGraphicsItem):
@@ -98,10 +106,12 @@ class FlowGraphWidget(InteractiveGraphicsView):
         g.add_edge('d', 'e')
         g.add_edge('b', 'e')
         # g.add_edge('e', 'e')
+        # g.add_edge('e', 'c')
+        # g.add_edge('c', 'e')
         g.add_edge('e', 'f')
         g.add_edge('d', 'f')
 
-        scene_nodes = {n: FlowGraphNode(n) for n in g.nodes()}
+        scene_nodes = {n: FlowGraphNode(n, 300, 200) for n in g.nodes()}
         for n in scene_nodes.values():
             scene.addItem(n)
 
