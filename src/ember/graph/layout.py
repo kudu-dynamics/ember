@@ -285,9 +285,8 @@ def quasi_topological_sort(dg: DiGraph) -> List:
     # find all strongly connected components in the graph
     sccs = [scc for scc in networkx.strongly_connected_components(dg) if len(scc) > 1]
 
-    # Assign indices to SCCs and then map nodes to their respective SCC indices
-    indexed_sccs = {scc: idx for (idx, scc) in enumerate(sccs)}
-    node_scc_index = {n: indexed_sccs[scc] for scc in sccs for n in scc}
+    # Assign indices to SCCs and map nodes to their respective SCC indices
+    node_scc_index = {n: idx for idx, scc in enumerate(sccs) for n in scc}
 
     # collapse all strongly connected components
     for src, dst in dg.edges():
