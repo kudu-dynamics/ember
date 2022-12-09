@@ -5,10 +5,14 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDockWidget, QGraphicsItem, QGraphicsSimpleTextItem, QMainWindow, QTabWidget
 from PySide6.QtGui import QColor, QFont
 
+from networkx import DiGraph
+
 from .ui.widgets.log import LogWidget
 from .ui.widgets.graph import FlowGraphWidget
 from .ui.widgets.trace import TraceContext, TraceEntry, TraceWidget
 from .log import LogOut
+from ember.plugin.ghidra.main import DemoGraph
+
 
 class EmberWindow(QMainWindow):
     def __init__(self):
@@ -26,7 +30,20 @@ class EmberWindow(QMainWindow):
         log_dock_w = QDockWidget("Log")
         log_dock_w.setWidget(log_w)
 
-        graph_w = FlowGraphWidget(None)
+        g = DiGraph()
+        g.add_edge('a', 'b')
+        g.add_edge('a', 'c')
+        g.add_edge('b', 'd')
+        g.add_edge('c', 'd')
+        g.add_edge('d', 'e')
+        g.add_edge('b', 'e')
+        # g.add_edge(e, e)
+        # g.add_edge(e, c)
+        # g.add_edge(c, e)
+        g.add_edge('e', 'f')
+        g.add_edge('d', 'f')
+
+        graph_w = FlowGraphWidget(g)
         graph_w.reload()
 
         trace = TraceContext('A',
@@ -53,10 +70,15 @@ class EmberWindow(QMainWindow):
         trace_w = TraceWidget(trace)
         trace_w.reload()
 
+        
+        ghidra_interaction_demo_w = DemoGraph()
+        ghidra_interaction_demo_w.reload()
+
         tab_w = QTabWidget()
         tab_w.addTab(graph_w, "Graph View")
         tab_w.addTab(trace_w, "Trace View")
-
+        tab_w.addTab(ghidra_interaction_demo_w, "Ghidra CFG")
+        
         self.setCentralWidget(tab_w)
         self.addDockWidget(Qt.BottomDockWidgetArea, log_dock_w)
 

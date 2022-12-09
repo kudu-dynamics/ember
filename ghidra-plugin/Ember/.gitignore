@@ -1,0 +1,11 @@
+.vscode
+.gradle
+build
+dist
+*.class
+.DS_Store
+*.jar
+.antProperties.xml
+.classpath
+.project
+.pydevproject
