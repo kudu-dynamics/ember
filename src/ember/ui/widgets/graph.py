@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt, QLineF, QPoint, QPointF, QRect, QRectF
 from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget, QGraphicsItem, QGraphicsPathItem, QGraphicsTextItem, QGraphicsRectItem, QStyleOptionGraphicsItem, QTextEdit
 from networkx import DiGraph
-from typing import Any, List
+from typing import Any, List, Type, TypeAlias, Callable
 
 from .graphics import InteractiveGraphicsView
 import ember.graph.layout as graph_layout
@@ -11,29 +11,31 @@ from ember.graph.layout import NodeSize, Point
 def toQPoint(p: Point) -> QPoint:
     return QPoint(p.x, p.y)
 
+Node: TypeAlias = Any
+        
 # TODO: This may eventually become an empty base class that is extended for custom node views.
 class FlowGraphNode(QGraphicsItem):
 
+    minimum_width: float = 300.0
+    minimum_height: float = 50.0
+    
     def __init__(self,
-                 data: str,
-                 width: int,
-                 height: int):
+                 data: Any,
+                 ):
         super().__init__()
         self.data = data
-        self.width = width
-        self.height = height
-        self.rect = QGraphicsRectItem(0.0, 0.0, width, height)
+        self.text = QGraphicsTextItem(str(data))
+        text_rect = self.text.boundingRect()
+        self.width = max(text_rect.width(), self.minimum_width)
+        self.height = min(text_rect.height(), self.minimum_height)
+        self._bounding_rect = QRectF(0.0, 0.0, self.width, self.height)
+        self.rect = QGraphicsRectItem(0.0, 0.0, self.width, self.height)
         self.rect.setBrush(QBrush(QColor(50, 50, 50)))
-        self.text = QGraphicsTextItem(data)
         self.text.setZValue(1.0)
 
     def boundingRect(self) -> QRectF:
         # TODO: Should this be centered within the block instead of (0, 0)?
-        return QRectF(0.0,
-                      0.0,
-                      self.width,
-                      self.height)
-
+        return self._bounding_rect
 
     def paint(self,
               painter: QPainter,
@@ -42,6 +44,7 @@ class FlowGraphNode(QGraphicsItem):
         self.rect.paint(painter, _option, _widget)
         self.text.paint(painter, _option, _widget)
 
+        
 # TODO: This may eventually become an empty base class that is extended for custom edge drawing.
 class FlowGraphEdge(QGraphicsItem):
 
@@ -77,14 +80,22 @@ class FlowGraphEdge(QGraphicsItem):
               widget: QWidget):
         self.pathItem.paint(painter, option, widget)
 
+        
 class FlowGraphWidget(InteractiveGraphicsView):
 
     def __init__(self,
                  graph: DiGraph,
-                 parent: QWidget = None):
+                 parent: QWidget = None,
+                 node_ctor: Callable[[Node], FlowGraphNode] = lambda x: FlowGraphNode(x),
+                 edge_ctor: Callable[[FlowGraphNode, FlowGraphNode, List[QPointF]], FlowGraphEdge] = lambda src, dst, pts: FlowGraphEdge(src, dst, pts),
+                 sort_node_on: Callable[[Any], Any] = lambda x: x,
+                 ):
         super().__init__(parent)
 
         self._graph = graph
+        self._node_ctor = node_ctor
+        self._edge_ctor = edge_ctor
+        self._sort_node_on = sort_node_on
 
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -97,21 +108,8 @@ class FlowGraphWidget(InteractiveGraphicsView):
         scene = self.scene()
         if not scene:
             return
-
-        g = DiGraph()
-        g.add_edge('a', 'b')
-        g.add_edge('a', 'c')
-        g.add_edge('b', 'd')
-        g.add_edge('c', 'd')
-        g.add_edge('d', 'e')
-        g.add_edge('b', 'e')
-        # g.add_edge('e', 'e')
-        # g.add_edge('e', 'c')
-        # g.add_edge('c', 'e')
-        g.add_edge('e', 'f')
-        g.add_edge('d', 'f')
-
-        scene_nodes = {n: FlowGraphNode(n, 300, 200) for n in g.nodes()}
+        
+        scene_nodes = {n: self._node_ctor(n) for n in self._graph.nodes()}
         for n in scene_nodes.values():
             scene.addItem(n)
 
@@ -122,7 +120,7 @@ class FlowGraphWidget(InteractiveGraphicsView):
         # TODO: Should the FlowGrpahNode keep a reference to the original node it represents?
         node_sizes = {n: rect_to_size(sn.boundingRect()) for n, sn in scene_nodes.items()}
 
-        layout_result, edges = graph_layout.layout(g, node_sizes, lambda x: x)
+        layout_result, edges = graph_layout.layout(self._graph, node_sizes, self._sort_node_on)
 
         print(edges)
 
@@ -131,7 +129,7 @@ class FlowGraphWidget(InteractiveGraphicsView):
 
         for e, pts in layout_result.edges.items():
             qpts = [QPointF(pt.x, pt.y) for pt in pts]
-            fge = FlowGraphEdge(e.src, e.dst, qpts)
+            fge = self._edge_ctor(e.src, e.dst, qpts)
             scene.addItem(fge)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
