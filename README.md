@@ -12,3 +12,5 @@ Ghidra support is being worked on now and support for other disassemblers will b
   * Inter-extension coordination that allows extensions to provide APIs for integration with Ember, other extensions, and interactive disassemblers*
   * Interactive Python console that allows for real-time modification of the Ember environment*
   * UI and analysis event system to keep Ember extensions and external tools synchronized*
+
+Distribution A. (Approved for public release; distribution unlimited.)
